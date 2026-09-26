@@ -259,5 +259,71 @@ class DifferentialTests(unittest.TestCase):
         self.assertGreater(feasible, 150)  # 确保有足够多的可行对拍样本
 
 
+class LargeScaleTests(unittest.TestCase):
+    def test_worst_case_20000_all_same_symbol(self):
+        # 全同符号 20000 词：重复结构最密集的最坏情形，逐对 O(n²) 扫描
+        # 已不可行；确定性索引算法应快速返回 [0, 9999] 与 [10000, 19999]
+        n = 20000
+        words = [W(i * 100, i * 100 + 50, "甲") for i in range(n)]
+        match = find_duplicate_passages(words, 2, 0)
+        self.assertEqual(match["word_count"], n // 2)
+        self.assertEqual(
+            (match["first"]["start_word"], match["second"]["start_word"]),
+            (0, n // 2),
+        )
+        self.assertEqual(
+            (match["first"]["end_word"], match["second"]["end_word"]),
+            (n // 2 - 1, n - 1),
+        )
+
+    def test_planted_duplicate_in_20000_words(self):
+        # 20000 个随机词中植入一段 100 词的重复口播，两侧用哨兵词隔断，
+        # 验证大规模下仍能定位到精确的片段对
+        random.seed(20260926)
+        n, seg_len, first, second = 20000, 100, 3000, 15000
+        texts = [f"词{k}" for k in range(500)]
+        chosen = [random.choice(texts) for _ in range(n)]
+        for k in range(seg_len):
+            token = f"播{k}"
+            chosen[first + k] = token
+            chosen[second + k] = token
+        for pos in (first - 1, first + seg_len, second - 1, second + seg_len):
+            chosen[pos] = f"哨{pos}"  # 唯一哨兵，阻断重复段向两端延伸
+        words = []
+        t = 0
+        for text in chosen:
+            words.append(W(t, t + 40, text))
+            t += 50
+        match = find_duplicate_passages(words, 2, 0)
+        self.assertEqual(match["word_count"], seg_len)
+        self.assertEqual(
+            (match["first"]["start_word"], match["second"]["start_word"]),
+            (first, second),
+        )
+        self.assertEqual(match["text"], "".join(f"播{k}" for k in range(seg_len)))
+
+    def test_medium_random_matches_brute_force(self):
+        # 中规模随机对拍：超出既有小样本范围，覆盖后缀数组路径
+        random.seed(20260927)
+        texts = ["甲", "乙"]
+        speakers = ["A", "B"]
+        for trial in range(200):
+            n = random.randint(17, 40)
+            words = []
+            t = 0
+            for _ in range(n):
+                t += random.choice([0, 100, 300])
+                dur = random.choice([100, 400])
+                words.append(
+                    W(t, t + dur, random.choice(texts), random.choice(speakers))
+                )
+                t += dur
+            min_words = random.randint(2, 4)
+            min_gap_ms = random.choice([0, 0, 100, 500, 3000])
+            expected = brute_force(words, min_words, min_gap_ms)
+            match = find_duplicate_passages(words, min_words, min_gap_ms)
+            self.assertEqual(match, expected, f"trial {trial} mismatch")
+
+
 if __name__ == "__main__":
     unittest.main()

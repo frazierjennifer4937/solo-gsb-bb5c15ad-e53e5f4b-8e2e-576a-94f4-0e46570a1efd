@@ -69,7 +69,7 @@ app = FastAPI(
     "在其他说话人且间隔受限的回答中为每个提问保序一对一配对、"
     "生成可回听的问答索引；并在峰值安全与相邻增益变化受限下，"
     "为逐帧响度测量选择命中目标响度且总代价最小的整数 dB 增益序列。",
-    version="1.11.0",
+    version="1.12.0",
 )
 
 
@@ -95,7 +95,7 @@ async def validation_exception_handler(_: Request, exc: RequestValidationError):
         "switch_cost∈[0,10]，locks 每项含整数 word_index 与非空 speaker；"
         "/chapter-align 另需非空 chapters（每项含非空 title/cue、非负整数 "
         "approx_ms）与正整数 min_gap_ms；/duplicate-passages 另需 "
-        "min_words∈[2,20]、非负整数 min_gap_ms，且 words 至多 2000 个；"
+        "min_words∈[2,20]、非负整数 min_gap_ms，且 words 至多 20000 个；"
         "/redact-preview 另需 phrases 为 1～50 个非空字符串，"
         "且 words 至多 2000 个；/trailer-plan 另需 1～20 个 candidates"
         "（每项含整数 start_word/end_word 与非负整数 score）、非负整数 "

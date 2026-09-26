@@ -119,7 +119,7 @@ class ChapterAlignResponse(BaseModel):
 
 class DuplicatePassagesRequest(BaseModel):
     words: list[WordIn] = Field(
-        ..., min_length=1, max_length=2000, description="按时间排列的词序列（至多 2000 词）"
+        ..., min_length=1, max_length=20000, description="按时间排列的词序列（至多 20000 词）"
     )
     min_words: int = Field(..., ge=2, le=20, description="重复片段的最短词数（2～20）")
     min_gap_ms: int = Field(
