@@ -480,16 +480,16 @@ class DuplicatePassagesApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422)
         self.assertEqual(resp.json()["error"]["code"], "invalid_request")
 
-    def test_words_over_2000_rejected(self):
+    def test_words_over_20000_rejected(self):
         words = [
             {"start_ms": i * 500, "end_ms": i * 500 + 400, "text": "字", "speaker": "A"}
-            for i in range(2001)
+            for i in range(20001)
         ]
         resp = self.post(words=words)
         self.assertEqual(resp.status_code, 422)
         self.assertEqual(resp.json()["error"]["code"], "invalid_request")
-        # 2000 词恰好在上限内
-        resp = self.post(words=words[:2000])
+        # 20000 词恰好在上限内
+        resp = self.post(words=words[:20000])
         self.assertEqual(resp.status_code, 200)
 
     def test_word_validation_reused(self):

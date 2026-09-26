@@ -27,7 +27,13 @@ docker compose up --build
 ```
 
 该命令自动完成镜像构建、依赖安装（`requirements.txt`）并启动服务，
-服务监听并映射到宿主机 **`http://localhost:8000`**。
+服务监听并映射到宿主机 **`http://localhost:8000`**（API 地址）。
+
+必要配置：**无外部依赖**（不需要数据库、缓存或消息队列等任何旁置服务），
+也无需手工初始化——Python 3.12、FastAPI、uvicorn 等全部依赖在镜像构建阶段
+自动安装，容器启动即完成初始化并就绪。唯一占用的是宿主机 **8000 端口**
+（`docker-compose.yml` 已内置 `8000:8000` 端口映射与 `/health` 健康检查；
+如宿主机 8000 被占用，仅需把映射改为 `"<空闲端口>:8000"`）。
 
 - 分段接口：`POST http://localhost:8000/segments`
 - 广告插播点接口：`POST http://localhost:8000/ad-breaks`
@@ -416,7 +422,7 @@ curl -s http://localhost:8000/chapter-align \
 以每个词的 `(text, speaker)` 组成符号序列，查找**两处词序列完全相同**的连续
 口播片段：两处词索引区间不重叠，且两处首词的 `start_ms` 至少相隔
 `min_gap_ms`。只返回词数最多的一对。`words` 字段与 `/segments` 相同
-（至多 2000 词），并沿用同一套词序与时间校验（422 错误码一致）。
+（至多 20000 词），并沿用同一套词序与时间校验（422 错误码一致）。
 
 服务地址：`POST http://localhost:8000/duplicate-passages`
 
@@ -451,7 +457,7 @@ curl -s http://localhost:8000/chapter-align \
    至少相隔 `min_gap_ms`；
 3. **目标**：只返回词数最多的一对；同长度时按两处起始词索引的二元组
    `(first.start_word, second.start_word)` 字典序裁决；
-4. `words` 至多 **2000** 个词，超限返回 422（`invalid_request`）；
+4. `words` 至多 **20000** 个词，超限返回 422（`invalid_request`）；
 5. 不存在词数 ≥ `min_words` 的合法片段对时返回 **200**，`match` 为 `null`。
 
 ### 响应示例（200）
@@ -1233,7 +1239,7 @@ curl -s http://localhost:8000/gain-plan \
 
 | `code` | 触发条件 | 附加字段 |
 | --- | --- | --- |
-| `invalid_request` | 请求体结构/字段类型不合法（含空 `words`、`switch_cost` 越界、`min_gap_ms` 越界、空 `chapters`/`title`/`cue`、`min_words` 越界、`words` 超过 2000 个、`phrases` 为空/超过 50 个/含空字符串、`candidates` 为空/超过 20 个/含负 `score`、`budget_ms` 为负、`required_speakers` 为空/超过 3 个/含空字符串、`max_duration_ms` 为负；`/transcript-retime` 的 `words`/`revisions` 为空或超过 300 个、修订项缺 `text`/`speaker` 或为空字符串；`/qa-pairs` 的 `words` 超过 300 个、`max_gap_ms` 缺失/为负/非整数；`/gain-plan` 的 `frames` 为空/超过 300 个，`loudness_lufs`/`true_peak_dbfs` 超出 -80～0、`target_lufs` 超出 -40～0、`max_step_db` 超出 0～12 或上述字段非整数） | `errors` |
+| `invalid_request` | 请求体结构/字段类型不合法（含空 `words`、`switch_cost` 越界、`min_gap_ms` 越界、空 `chapters`/`title`/`cue`、`min_words` 越界、`/duplicate-passages` 的 `words` 超过 20000 个、`/redact-preview` 与 `/crosstalk-report` 的 `words` 超过 2000 个、`phrases` 为空/超过 50 个/含空字符串、`candidates` 为空/超过 20 个/含负 `score`、`budget_ms` 为负、`required_speakers` 为空/超过 3 个/含空字符串、`max_duration_ms` 为负；`/transcript-retime` 的 `words`/`revisions` 为空或超过 300 个、修订项缺 `text`/`speaker` 或为空字符串；`/qa-pairs` 的 `words` 超过 300 个、`max_gap_ms` 缺失/为负/非整数；`/gain-plan` 的 `frames` 为空/超过 300 个，`loudness_lufs`/`true_peak_dbfs` 超出 -80～0、`target_lufs` 超出 -40～0、`max_step_db` 超出 0～12 或上述字段非整数） | `errors` |
 | `invalid_time_range` | 某个词 `end_ms < start_ms`（`/crosstalk-report` 中 `word_index` 为输入序）；`/gain-plan` 中为某帧 `start_ms < 0` 或 `end_ms <= start_ms`（`frame_index` 为输入序） | `word_index` / `frame_index` |
 | `time_out_of_order` | 相邻词 `start_ms` 倒序（`/gain-plan` 中为相邻帧 `start_ms` 倒序，附加 `frame_index`） | `word_index` / `frame_index` |
 | `overlapping_time_range` | 某词 `start_ms` 早于前词 `end_ms`（重叠）（`/gain-plan` 中为相邻帧时间重叠，附加 `frame_index`） | `word_index` / `frame_index` |
@@ -1314,13 +1320,20 @@ O(H) 空间**（H 为各章命中候选总数）。每章候选按全局字符�
 第一个满足间隔且“本章偏差 + 后缀最小”恰等于剩余预算的候选即全局字符位最小的
 可行选择，归纳可得命中起始全局字符位序列字典序最小。
 
-重复口播片段检测（`duplicate_passages.py`）为沿对角线递推的最长公共前缀扫描，
-**O(n²) 时间、O(1) 额外空间**（n ≤ 2000）。以 `(text, speaker)` 为符号，
-对角线 `d = j - i` 上 `lcp(i, i+d)` 由 `lcp(i+1, i+1+d)` 加 1 递推；起点对
-`(i, j)` 的可用长度为 `min(lcp, j-i)`（区间不重叠要求片段长不超过 `j-i`），
-并要求首词 `start_ms` 间隔达标。可用长度不超过 `d`，故从大到小枚举对角线时，
-一旦 `d` 小于当前最优长度即可整体剪掉；全程维护“最优长度 + 字典序最小起点对”，
-最后校验最优长度达到 `min_words`，否则返回 `match: null`。
+重复口播片段检测（`duplicate_passages.py`）为**确定性索引算法**：后缀数组 +
+LCP 分组 + 答案二分，**最坏 O(n log² n) 时间、O(n) 额外空间**（n 为词数，
+≤ 20000；全部数组按词数分配，**不按时间轴毫秒跨度分配**）。以 `(text, speaker)`
+为符号，排序去重压缩为整数 id；倍增法 O(log n) 轮构造后缀数组（每轮一次
+O(n log n) 排序），Kasai O(n) 求 LCP——`lcp(i,j) ≥ L` 当且仅当两后缀落在同一
+“相邻 LCP 均 ≥ L”的分组内。起点对 `(i, j)` 的可用长度为 `min(lcp, j-i)`
+（区间不重叠要求片段长不超过 `j-i`），并要求首词 `start_ms` 间隔达标；
+词时间非降，故用双指针 O(n) 预求 `g[i]`（首个 `start_ms ≥ start_ms[i] +
+min_gap_ms` 的词下标），把长度 `L` 下的合法条件化为纯下标约束
+`j ≥ f(i) = max(i+L, g[i])`；`f` 随 `i` 非降，故一组起点集合 `S` 可行当且仅当
+`f(min S) ≤ max S`，单趟分组扫描 O(n) 完成一次可行性判定。可行性随长度单调，
+二分最大可行长度（O(n log n)）；重建时按组内升序列表，首词升序枚举、取组内
+第一个 `≥ f(i)` 的次词，即得字典序最小起点对；最优长度不足 `min_words` 时
+返回 `match: null`。
 
 敏感短语遮罩预览（`redact_preview.py`）为按字符起点保留优先候选 + 顺序贪心选取，
 **O(P·T + T) 时间、O(T) 额外工作内存**（P 为短语数 ≤ 50、T 为全量拼接文本

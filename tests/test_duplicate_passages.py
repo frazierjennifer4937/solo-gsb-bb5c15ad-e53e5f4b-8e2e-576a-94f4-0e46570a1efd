@@ -259,5 +259,37 @@ class DifferentialTests(unittest.TestCase):
         self.assertGreater(feasible, 150)  # 确保有足够多的可行对拍样本
 
 
+class LargeScaleTests(unittest.TestCase):
+    """规模上限（20000 词）下的确定性回归：索引算法须在可接受时间内给出精确解。"""
+
+    def test_20000_words_all_same_token(self):
+        # 全部相同符号：最优为前后各半的 (0, n//2)，词数 n//2
+        n = 20000
+        words = [W(i * 500, i * 500 + 400, "字") for i in range(n)]
+        match = find_duplicate_passages(words, 2, 0)
+        self.assertEqual(match["word_count"], n // 2)
+        self.assertEqual(
+            (match["first"]["start_word"], match["second"]["start_word"]),
+            (0, n // 2),
+        )
+        self.assertEqual(match["text"], "字" * (n // 2))
+
+    def test_20000_words_planted_block(self):
+        # 唯一重复为词 100～899 与词 15100～15899 的 800 词块，其余符号均唯一
+        n = 20000
+        tokens = [f"词{k}" for k in range(n)]
+        for k in range(800):
+            tokens[15100 + k] = tokens[100 + k]
+        words = [W(i * 500, i * 500 + 400, tokens[i]) for i in range(n)]
+        match = find_duplicate_passages(words, 2, 1000)
+        self.assertEqual(match["word_count"], 800)
+        self.assertEqual(
+            (match["first"]["start_word"], match["second"]["start_word"]), (100, 15100)
+        )
+        self.assertEqual(
+            (match["first"]["end_word"], match["second"]["end_word"]), (899, 15899)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
